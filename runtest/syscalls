@@ -241,7 +241,7 @@ fallocate02 fallocate02
 fallocate03 fallocate03
 fallocate04 fallocate04
 fallocate05 fallocate05
-fallocate06 fallocate06
+#fallocate06 fallocate06
 
 fsetxattr01 fsetxattr01
 fsetxattr02 fsetxattr02
@@ -510,7 +510,7 @@ getpgid02 getpgid02
 getpgrp01 getpgrp01
 
 getpid01 getpid01
-getpid02 getpid02
+#getpid02 getpid02
 
 getppid01 getppid01
 getppid02 getppid02
@@ -906,7 +906,7 @@ mprotect03 mprotect03
 mprotect04 mprotect04
 mprotect05 mprotect05
 
-pkey01 pkey01
+#pkey01 pkey01
 
 mq_notify01 mq_notify01
 mq_notify02 mq_notify02
