@@ -7,7 +7,6 @@ sched
 math
 nptl
 containers
-<<<<<<< HEAD
 fs_bind
 controllers
 fcntl-locktests
