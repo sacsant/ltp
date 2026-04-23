@@ -535,6 +535,174 @@ def generate_test_catalog(_):
     with open(output, 'w+', encoding='utf-8') as new_tests:
         new_tests.write('\n'.join(text))
 
+def generate_cve_stats(_):
+    """
+    Generate statistics for CVE reproducers. Parse runtest/cve file,
+    scan testcases directories, and generate documentation with links
+    to CVE databases and test sources.
+    """
+    output = '_static/cve_reproducers.rst'
+    runtest_cve = '../runtest/cve'
+
+    text = [
+        'CVE Reproducers\n',
+        '---------------\n\n',
+        'LTP includes reproducers for known CVEs. These tests help verify\n',
+        'that systems are patched against known vulnerabilities.\n\n',
+    ]
+
+    # Parse runtest/cve file
+    cve_data = {}
+    cve_pattern = re.compile(r'^(cve-(\d{4})-\d+)\s+(\S+)(?:\s+(.*))?$')
+
+    try:
+        with open(runtest_cve, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith('#'):
+                    continue
+
+                match = cve_pattern.match(line)
+                if match:
+                    cve_id = match.group(1).upper()
+                    year = match.group(2)
+                    test_name = match.group(3)
+                    options = match.group(4) if match.group(4) else ''
+
+                    cve_data[cve_id] = {
+                        'cve_id': cve_id,
+                        'year': year,
+                        'test_name': test_name,
+                        'options': options,
+                        'source_path': None,
+                        'description': ''
+                    }
+    except FileNotFoundError:
+        logger = sphinx.util.logging.getLogger(__name__)
+        msg = f"Can't find runtest/cve file ({runtest_cve})"
+        logger.warning(msg)
+
+        with open(output, 'w+', encoding='utf-8') as stats:
+            stats.write(f".. warning::\n\n    {msg}")
+        return
+
+    # Scan for CVE test source files
+    testcases_dirs = [
+        '../testcases/cve',
+        '../testcases/kernel/syscalls',
+        '../testcases/kernel/mem',
+        '../testcases/kernel/pty',
+    ]
+
+    # Build a mapping of all potential source files
+    # Key: base filename without extension, Value: full path
+    source_files = {}
+    for base_dir in testcases_dirs:
+        if not os.path.exists(base_dir):
+            continue
+
+        for dirpath, _, files in os.walk(base_dir):
+            for filename in files:
+                if filename.endswith('.c') or filename.endswith('.sh'):
+                    # Store base name without extension
+                    base_name = filename.rsplit('.', 1)[0]
+                    rel_path = os.path.join(
+                        dirpath.replace('../', ''),
+                        filename
+                    )
+                    source_files[base_name] = rel_path
+
+    # Match CVE entries with source files
+    for cve_id, cve_info in cve_data.items():
+        test_name = cve_info['test_name']
+        source_path = None
+
+        if test_name in source_files:
+            source_path = source_files[test_name]
+        elif cve_id.lower() in source_files:
+            source_path = source_files[cve_id.lower()]
+
+        if source_path:
+            cve_info['source_path'] = source_path
+
+            try:
+                src_file = os.path.join('..', source_path)
+                with open(src_file, 'r', encoding='utf-8') as src:
+                    in_comment = False
+                    desc_lines = []
+                    for line in src:
+                        line = line.strip()
+                        if line.startswith('/*\\'):
+                            in_comment = True
+                            continue
+                        if in_comment:
+                            if line.endswith('*/'):
+                                break
+                            if line.startswith('*'):
+                                desc_line = line[1:].strip()
+                                if desc_line:
+                                    desc_lines.append(desc_line)
+
+                    if desc_lines:
+                        # Use first non-empty line as description
+                        cve_info['description'] = desc_lines[0]
+            except (IOError, UnicodeDecodeError):
+                pass
+
+    # Generate statistics
+    total_cves = len(cve_data)
+    cves_by_year = {}
+    for cve_info in cve_data.values():
+        year = cve_info['year']
+        cves_by_year[year] = cves_by_year.get(year, 0) + 1
+
+    text.append(f'* **Total CVEs tested:** {total_cves}\n')
+    text.append('* **CVEs by year:**\n\n')
+
+    for year in sorted(cves_by_year.keys()):
+        text.append(f'  * {year}: {cves_by_year[year]} CVEs\n')
+
+    text.append('\n')
+
+    # Generate CVE table
+    text.extend([
+        'CVE List\n',
+        '~~~~~~~~\n\n',
+        '.. list-table::\n',
+        '   :header-rows: 1\n',
+        '   :widths: 20 25 10 45\n\n',
+        '   * - CVE ID\n',
+        '     - Test Name\n',
+        '     - Year\n',
+        '     - Description\n',
+    ])
+
+    # Sort CVEs by ID (chronologically)
+    for cve_id in sorted(cve_data.keys()):
+        cve_info = cve_data[cve_id]
+
+        cve_url = f"https://cve.mitre.org/cgi-bin/cvename.cgi?name={cve_id}"
+        cve_link = f"`{cve_id} <{cve_url}>`_"
+
+        if cve_info['source_path']:
+            test_url = f"{ltp_repo_base_url}/{cve_info['source_path']}"
+            test_link = f"`{cve_info['test_name']} <{test_url}>`__"
+        else:
+            test_link = cve_info['test_name']
+
+        description = cve_info['description'] if cve_info['description'] else 'CVE reproducer test'
+
+        text.extend([
+            f"   * - {cve_link}\n",
+            f"     - {test_link}\n",
+            f"     - {cve_info['year']}\n",
+            f"     - {description}\n",
+        ])
+
+    with open(output, 'w+', encoding='utf-8') as stats:
+        stats.writelines(text)
+
 
 def setup(app):
     """
@@ -543,4 +711,5 @@ def setup(app):
     """
     app.add_css_file('custom.css')
     app.connect('builder-inited', generate_syscalls_stats)
+    app.connect('builder-inited', generate_cve_stats)
     app.connect('builder-inited', generate_test_catalog)
